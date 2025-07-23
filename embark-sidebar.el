@@ -104,13 +104,6 @@
     (embark-sidebar--display-buffer buffer)))
 
 ;;;###autoload
-(defun embark-sidebar-vertico-collect-sidebar ()
-  "Collect with Embark and display sidebar before exiting Vertico."
-  (interactive)
-  (embark-sidebar-collect-to-sidebar)
-  (vertico-exit))
-
-;;;###autoload
 (defun embark-sidebar-show ()
   "Ensure the sidebar buffer is displayed."
   (interactive)
@@ -120,23 +113,14 @@
     (embark-sidebar--display-buffer buffer)))
 
 ;;;###autoload
-(defun embark-sidebar-ensure-shown ()
-  "Ensure sidebar is always shown at left. Can be put on hooks."
-  (unless (get-buffer embark-sidebar-name)
-    (with-current-buffer (get-buffer-create embark-sidebar-name)
-      (insert "Embark Sidebar")))
-  (embark-sidebar--display-buffer (get-buffer embark-sidebar-name)))
-
-;;;###autoload
 (defun embark-sidebar-toggle ()
   "Toggle visibility of the Embark sidebar."
   (interactive)
   (let ((buf (get-buffer embark-sidebar-name)))
     (if-let ((win (and buf (get-buffer-window buf 'visible))))
         (delete-window win)
-      (if buf
-          (embark-sidebar--display-buffer buf)
-        (embark-sidebar-ensure-shown)))))
+      (when buf
+        (embark-sidebar--display-buffer buf)))))
 
 ;;;###autoload
 (define-minor-mode embark-sidebar-mode
@@ -148,15 +132,9 @@
   (if embark-sidebar-mode
       (progn
         (setq embark-sidebar--active t)
-        ;; Always show sidebar
-        (add-hook
-         'window-configuration-change-hook
-         #'embark-sidebar-ensure-shown)
-        (embark-sidebar-ensure-shown))
+        (embark-sidebar-show))
     ;; Disable sidebar
     (setq embark-sidebar--active nil)
-    (remove-hook
-     'window-configuration-change-hook #'embark-sidebar-ensure-shown)
     (when (get-buffer embark-sidebar-name)
       (when-let ((win
                   (get-buffer-window
@@ -173,16 +151,11 @@
   ;; Vertico advice
   (advice-add
    'vertico-exit
-   :before #'embark-sidebar--vertico-exit-advice)
-  ;; Always show sidebar
-  (add-hook
-   'window-configuration-change-hook #'embark-sidebar-ensure-shown))
+   :before #'embark-sidebar--vertico-exit-advice))
 
 (defun embark-sidebar--advice-disable ()
   "Disable advice and hooks for embark-sidebar-mode."
   (advice-remove 'vertico-exit #'embark-sidebar--vertico-exit-advice)
-  (remove-hook
-   'window-configuration-change-hook #'embark-sidebar-ensure-shown)
   (when (get-buffer embark-sidebar-name)
     (when-let ((win
                 (get-buffer-window (get-buffer embark-sidebar-name))))
@@ -198,8 +171,7 @@
   (if embark-sidebar-mode
       (progn
         (setq embark-sidebar--active t)
-        (embark-sidebar--advice-enable)
-        (embark-sidebar-ensure-shown))
+        (embark-sidebar--advice-enable))
     (setq embark-sidebar--active nil)
     (embark-sidebar--advice-disable)))
 
