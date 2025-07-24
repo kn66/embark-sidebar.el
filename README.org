@@ -46,7 +46,12 @@ consult-line
 2. Add the following to your Emacs configuration:
 
 #+BEGIN_SRC emacs-lisp
-(require 'embark-sidebar)
+  (use-package vertico)
+  (use-package embark)
+
+  (use-package embark-sidebar
+    :vc ( :url "https://github.com/kn66/embark-sidebar.el"
+          :rev :newest))
 #+END_SRC
 
 ** Dependencies
@@ -61,7 +66,7 @@ consult-line
 
 #+BEGIN_SRC emacs-lisp
 ;; Enable embark-sidebar-mode globally
-(embark-sidebar-mode 1)
+(embark-sidebar-mode +1)
 #+END_SRC
 
 ** Customization Options
