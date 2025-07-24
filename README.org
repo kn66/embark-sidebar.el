@@ -21,6 +21,23 @@ The result is a sidebar that adapts to your workflow, always showing the most pe
 - **Customizable Display**: Adjustable sidebar width and appearance
 - **Global Minor Mode**: Easy toggling of sidebar functionality
 
+* Screenshots
+
+find-file
+[[./screenshots/find-file.png]]
+
+xref
+[[./screenshots/xref.png]]
+
+consult-flymake
+[[./screenshots/consult-flymake.png]]
+
+consult-imenu
+[[./screenshots/consult-imenu.png]]
+
+consult-line
+[[./screenshots/consult-line.png]]
+
 * Installation
 
 ** Manual Installation
