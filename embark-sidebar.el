@@ -136,8 +136,7 @@
              ((no-other-window . t)
               (no-delete-other-windows . t)
               (mode-line-format . " *Embark Sidebar*")))))))
-    (setq embark-sidebar--window win)
-    (message nil)))
+    (setq embark-sidebar--window win)))
 
 ;;;###autoload
 (defun embark-sidebar-collect-to-sidebar ()
@@ -238,12 +237,8 @@ Before collecting, show a message indicating the command used. Suppressed if can
           embark-sidebar--last-command
           embark-sidebar-allowed-commands)
          (progn
-           (message "Collecting to sidebar for command: %s"
-                    embark-sidebar--last-command)
            (embark-sidebar-show))
        (progn
-         (message "command %s not allowed for sidebar collect"
-                  embark-sidebar--last-command)
          (embark-sidebar-close))))))
 
 (defun embark-sidebar--vertico-exit-advice (&rest _)
