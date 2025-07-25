@@ -16,10 +16,10 @@ The result is a sidebar that adapts to your workflow, always showing the most pe
 
 - **Dynamic Content**: Automatically populates with recent commands and completions
 - **Embark Integration**: Leverages Embark's powerful action system
-- **Vertico Compatibility**: Seamless integration with Vertico completion UI
-- **Performance Optimized**: Configurable candidate threshold to prevent performance issues with large datasets
-- **Customizable Display**: Adjustable sidebar width and appearance
-- **Global Minor Mode**: Easy toggling of sidebar functionality
+- **Vertico Integration**: Collect sidebar automatically when exiting Vertico and for allowed commands
+- **Performance Optimized**: Only collects if candidate count is within set threshold
+- **Customizable Display**: Adjustable sidebar width, side (left/right), and buffer name
+- **Global Minor Mode**: Enable or disable sidebar and integration via =embark-sidebar-mode=
 
 * Screenshots
 
@@ -38,9 +38,7 @@ consult-imenu
 consult-line
 [[./screenshots/consult-line.png]]
 
-* Installation
-
-** Manual Installation
+* Setup
 
 1. Download =embark-sidebar.el= and place it in your Emacs load path
 2. Add the following to your Emacs configuration:
@@ -50,102 +48,29 @@ consult-line
   (use-package embark)
 
   (use-package embark-sidebar
-    :vc ( :url "https://github.com/kn66/embark-sidebar.el"
-          :rev :newest))
+    :vc (:url "https://github.com/kn66/embark-sidebar.el" :rev :newest)
+    :config
+    (embark-sidebar-mode +1))
 #+END_SRC
 
-** Dependencies
-
-- Emacs 27.1 or later
-- =embark= 1.0 or later
-- =vertico= 0.30 or later
-
-* Configuration
-
-** Basic Setup
+* Customization Options
 
 #+BEGIN_SRC emacs-lisp
-;; Enable embark-sidebar-mode globally
-(embark-sidebar-mode +1)
+  ;; Change the sidebar width (default: 60)
+  (setq embark-sidebar-width 80)
+
+  ;; Display on left side (default: 'right)
+  (setq embark-sidebar-side 'left)
+
+  ;; Change sidebar buffer name (default: "*Embark Sidebar*")
+  (setq embark-sidebar-name "*My Sidebar*")
+
+  ;; Set candidate threshold to prevent sidebar collect (default: 600)
+  (setq embark-sidebar-candidate-threshold 300)
+
+  ;; Change allowed commands for sidebar collect (default: see source, can be customized)
+  (setq embark-sidebar-allowed-commands '(find-file consult-line consult-imenu))
 #+END_SRC
-
-** Customization Options
-
-#+BEGIN_SRC emacs-lisp
-;; Customize sidebar width (default: 60)
-(setq embark-sidebar-width 80)
-
-;; Change sidebar buffer name (default: "*Embark Sidebar*")
-(setq embark-sidebar-name "*My Sidebar*")
-
-;; Set candidate threshold to prevent performance issues (default: 500)
-(setq embark-sidebar-candidate-threshold 300)
-#+END_SRC
-
-** Key Bindings
-
-You may want to add convenient key bindings:
-
-#+BEGIN_SRC emacs-lisp
-;; Toggle sidebar visibility
-(global-set-key (kbd "C-c s t") 'embark-sidebar-toggle)
-
-;; Show sidebar
-(global-set-key (kbd "C-c s s") 'embark-sidebar-show)
-
-;; Collect to sidebar and exit vertico
-(define-key vertico-map (kbd "C-c s") 'embark-sidebar-vertico-collect-sidebar)
-#+END_SRC
-
-* Usage
-
-** Basic Commands
-
-- =embark-sidebar-mode=: Toggle the global minor mode
-- =embark-sidebar-show=: Display the sidebar (create if doesn't exist)
-- =embark-sidebar-toggle=: Toggle sidebar visibility
-- =embark-sidebar-collect-to-sidebar=: Manually collect current candidates to sidebar
-
-** Automatic Behavior
-
-When =embark-sidebar-mode= is enabled:
-
-- The sidebar automatically populates when using Vertico completion
-- Recent commands and completions are displayed in order of relevance
-- Large candidate lists are filtered based on the configured threshold
-- The sidebar persists across different Emacs sessions
-
-** Performance Considerations
-
-The package includes a candidate threshold (=embark-sidebar-candidate-threshold=) to prevent performance degradation with large datasets. When the number of candidates exceeds this threshold, collection is suppressed and a warning message is displayed.
-
-* Customization Variables
-
-| Variable                             |              Default | Description                           |
-|--------------------------------------+----------------------+---------------------------------------|
-| =embark-sidebar-width=               |                   60 | Width of the sidebar window           |
-| =embark-sidebar-name=                | ="*Embark Sidebar*"= | Name of the sidebar buffer            |
-| =embark-sidebar-candidate-threshold= |                  600 | Maximum candidates before suppression |
-
-* Technical Details
-
-** Buffer Management
-
-The package uses sophisticated buffer cloning to ensure that all Embark Collect functionality remains intact in the sidebar, including:
-
-- Text properties and overlays
-- Buffer-local variables
-- Keymaps and selection state
-- Embark-specific metadata
-
-** Window Management
-
-The sidebar uses Emacs' side window functionality with specific parameters:
-
-- Always displays on the left side
-- Cannot be deleted with =delete-other-windows=
-- Excludes from =other-window= cycling
-- Custom mode line format
 
 * Troubleshooting
 
@@ -153,28 +78,10 @@ The sidebar uses Emacs' side window functionality with specific parameters:
 
 - Ensure =embark-sidebar-mode= is enabled
 - Check that required dependencies are installed
-- Verify Vertico is properly configured
 
 ** Performance Issues
 
 - Reduce =embark-sidebar-candidate-threshold= value
-- Check for conflicts with other sidebar packages
-- Monitor Emacs memory usage with large candidate sets
-
-** Integration Problems
-
-- Ensure Embark and Vertico are up to date
-- Check for advice conflicts with other packages
-- Verify keybinding conflicts
-
-* Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Submit a pull request
 
 * License
 
