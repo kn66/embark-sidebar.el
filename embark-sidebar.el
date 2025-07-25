@@ -19,6 +19,29 @@
 (require 'embark)
 (require 'vertico)
 
+(defcustom embark-sidebar-allowed-commands
+  '(consult-line
+    consult-imenu
+    consult-flymake
+    consult-flycheck
+    consult-grep
+    consult-ripgrep
+    consult-xref
+    consult-find
+    consult-fd
+    consult-recent-file
+    consult-outline
+    consult-global-mark
+    consult-project-buffer
+    consult-bookmark
+    xref-find-definitions
+    xref-find-references
+    find-file
+    project-find-file
+    denote-open-or-create)
+  "List of commands for which `embark-sidebar-collect-to-sidebar' is enabled."
+  :type '(repeat symbol))
+
 (defgroup embark-sidebar nil
   "Show Embark Collect in a left sidebar."
   :group 'embark)
@@ -26,6 +49,10 @@
 (defcustom embark-sidebar-width 60
   "Width of the sidebar window."
   :type 'integer)
+
+(defcustom embark-sidebar-side 'right
+  "Which side to display the sidebar on, either `'left` or `'right`."
+  :type '(choice (const left) (const right)))
 
 (defcustom embark-sidebar-name "*Embark Sidebar*"
   "Name of the Embark sidebar buffer."
@@ -40,6 +67,9 @@
 
 (defvar embark-sidebar--window nil
   "Sidebar window object.")
+
+(defvar embark-sidebar--last-command nil
+  "Last command executed that triggered the sidebar collect.")
 
 (defun embark-sidebar--clone-collect-buffer (source dest)
   "Clone SOURCE collect buffer fully into DEST buffer (including properties and local variables)."
@@ -95,11 +125,11 @@
                     (setq props (cddr props))))))))))))
 
 (defun embark-sidebar--display-buffer (buffer)
-  "Display BUFFER in a left sidebar window. Track window if minor mode is enabled."
+  "Display BUFFER in a sidebar window. The side is controlled by `embark-sidebar-side'."
   (let ((win
          (display-buffer-in-side-window
           buffer
-          `((side . left)
+          `((side . ,embark-sidebar-side)
             (slot . 0) (window-width . ,embark-sidebar-width)
             (window-parameters
              .
@@ -111,48 +141,71 @@
 
 ;;;###autoload
 (defun embark-sidebar-collect-to-sidebar ()
-  "Display Embark Collect results in the sidebar buffer. (Suppressed if candidate count too large!)"
+  "Display Embark Collect results in the sidebar buffer for allowed commands only.
+Before collecting, show a message indicating the command used. Suppressed if candidate count too large!"
   (interactive)
-  (let ((source-name "*Embark Source*")
-        (sidebar-name embark-sidebar-name)
-        buffer
-        (candidates
-         (and (boundp 'vertico--candidates) vertico--candidates)))
-    ;; Check if candidate count exceeds threshold
-    (if (and candidates
-             (numberp embark-sidebar-candidate-threshold)
-             (> (length candidates)
-                embark-sidebar-candidate-threshold))
-        (progn
-          (with-current-buffer (get-buffer-create sidebar-name)
-            (let ((inhibit-read-only t))
-              (erase-buffer)
-              (insert
-               (format
-                "Too many candidates (%d), not collecting. Threshold is %d."
-                (length candidates)
-                embark-sidebar-candidate-threshold))))
-          (setq buffer (get-buffer sidebar-name)))
-      ;; Normal embark-collect with cloning
+  (let* ((source-name "*Embark Source*")
+         (sidebar-name embark-sidebar-name)
+         buffer
+         (candidates
+          (and (boundp 'vertico--candidates) vertico--candidates))
+         (command
+          (or (bound-and-true-p embark--command) last-command)))
+    ;; Only run for allowed commands
+    (setq embark-sidebar--last-command command)
+    (when (member command embark-sidebar-allowed-commands)
       (progn
-        ;; Delete source buffer if exists
-        (when (get-buffer source-name)
-          (kill-buffer source-name))
-        (condition-case err
-            (let ((src-buf (embark--collect source-name)))
-              (embark-sidebar--clone-collect-buffer
-               source-name sidebar-name)
-              ;; Keep source buffer (delete after complete cloning)
-              (when (get-buffer source-name)
-                (kill-buffer source-name))
+        ;; Check if candidate count exceeds threshold
+        (if (and candidates
+                 (numberp embark-sidebar-candidate-threshold)
+                 (> (length candidates)
+                    embark-sidebar-candidate-threshold))
+            (progn
+              (with-current-buffer (get-buffer-create sidebar-name)
+                (let ((inhibit-read-only t))
+                  (erase-buffer)
+                  (insert
+                   (format
+                    "Too many candidates (%d), not collecting. Threshold is %d.\nCommand: %s"
+                    (length candidates)
+                    embark-sidebar-candidate-threshold
+                    command))))
               (setq buffer (get-buffer sidebar-name)))
-          (user-error
-           (with-current-buffer (get-buffer-create sidebar-name)
-             (let ((inhibit-read-only t))
-               (erase-buffer)
-               (insert "No candidates found")))
-           (setq buffer (get-buffer sidebar-name))))))
-    (embark-sidebar--display-buffer buffer)))
+          ;; Normal embark-collect with cloning
+          (progn
+            ;; Delete source buffer if exists
+            (when (get-buffer source-name)
+              (kill-buffer source-name))
+            (condition-case err
+                (let ((src-buf (embark--collect source-name)))
+                  (embark-sidebar--clone-collect-buffer
+                   source-name sidebar-name)
+                  ;; Keep source buffer (delete after complete cloning)
+                  (when (get-buffer source-name)
+                    (kill-buffer source-name))
+                  (setq buffer (get-buffer sidebar-name))
+                  ;; Insert command info at top of sidebar buffer
+                  (with-current-buffer buffer
+                    (let ((inhibit-read-only t))
+                      (goto-char (point-min))
+                      (insert (format "Command: %s\n" command)))))
+              (user-error
+               (with-current-buffer (get-buffer-create sidebar-name)
+                 (let ((inhibit-read-only t))
+                   (erase-buffer)
+                   (insert
+                    (format "No candidates found.\nCommand: %s"
+                            command))))
+               (setq buffer (get-buffer sidebar-name))))))
+        (embark-sidebar--display-buffer buffer)))))
+
+;;;###autoload
+(defun embark-sidebar-close ()
+  "Close the Embark Sidebar window and kill the buffer if it exists."
+  (interactive)
+  (let ((buf (get-buffer embark-sidebar-name)))
+    (when-let ((win (and buf (get-buffer-window buf 'visible))))
+      (delete-window win))))
 
 ;;;###autoload
 (defun embark-sidebar-show ()
@@ -176,10 +229,28 @@
       (when buf
         (embark-sidebar--display-buffer buf)))))
 
+(defun embark-sidebar--auto-switch-window ()
+  "Switch to the Embark sidebar window if it exists, otherwise create it."
+  (run-at-time
+   "0.01 sec" nil
+   (lambda ()
+     (if (member
+          embark-sidebar--last-command
+          embark-sidebar-allowed-commands)
+         (progn
+           (message "Collecting to sidebar for command: %s"
+                    embark-sidebar--last-command)
+           (embark-sidebar-show))
+       (progn
+         (message "command %s not allowed for sidebar collect"
+                  embark-sidebar--last-command)
+         (embark-sidebar-close))))))
+
 (defun embark-sidebar--vertico-exit-advice (&rest _)
   "Advice for `vertico-exit' to collect into sidebar if sidebar mode is active."
   (when embark-sidebar-mode
-    (embark-sidebar-collect-to-sidebar)))
+    (embark-sidebar-collect-to-sidebar)
+    (embark-sidebar--auto-switch-window)))
 
 (defun embark-sidebar--advice-enable ()
   "Enable advice and hooks for embark-sidebar-mode."
@@ -206,8 +277,7 @@
   (if embark-sidebar-mode
       (progn
         (setq embark-sidebar--active t)
-        (embark-sidebar--advice-enable)
-        (embark-sidebar-show))
+        (embark-sidebar--advice-enable))
     (setq embark-sidebar--active nil)
     (embark-sidebar--advice-disable)))
 
