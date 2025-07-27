@@ -3,7 +3,7 @@
 ;; Copyright (C) 2025
 
 ;; Author: Nobuyuki Kamimoto
-;; Version: 1.0
+;; Version: 1.1
 ;; Package-Requires: ((emacs "27.1") (embark "1.0") (vertico "0.30"))
 ;; Keywords: convenience, sidebar, embark
 ;; URL: https://github.com/kn66/embark-sidebar
@@ -11,13 +11,19 @@
 ;;; Commentary:
 
 ;; This package provides commands for displaying Embark Collect results in a left-hand sidebar.
-;; Includes integration for Vertico completion UI, showing the collect buffer always in a dedicated
-;; sidebar window named *Embark Sidebar*.
+;; Includes integration for Vertico completion UI, showing multiple collect buffers in a dedicated
+;; sidebar window with vertical stacking layout using individual side windows.
 
 ;;; Code:
 
 (require 'embark)
 (require 'vertico)
+
+;;; Customization
+
+(defgroup embark-sidebar nil
+  "Show Embark Collect in a left sidebar."
+  :group 'embark)
 
 (defcustom embark-sidebar-allowed-commands
   '(consult-line
@@ -40,206 +46,346 @@
     project-find-file
     denote-open-or-create)
   "List of commands for which `embark-sidebar-collect-to-sidebar' is enabled."
-  :type '(repeat symbol))
-
-(defgroup embark-sidebar nil
-  "Show Embark Collect in a left sidebar."
-  :group 'embark)
+  :type '(repeat symbol)
+  :group 'embark-sidebar)
 
 (defcustom embark-sidebar-width 60
   "Width of the sidebar window."
-  :type 'integer)
+  :type 'integer
+  :group 'embark-sidebar)
 
 (defcustom embark-sidebar-side 'right
-  "Which side to display the sidebar on, either `'left` or `'right`."
-  :type '(choice (const left) (const right)))
-
-(defcustom embark-sidebar-name "*Embark Sidebar*"
-  "Name of the Embark sidebar buffer."
-  :type 'string)
+  "Which side to display the sidebar on."
+  :type '(choice (const left) (const right))
+  :group 'embark-sidebar)
 
 (defcustom embark-sidebar-candidate-threshold 600
-  "Maximum number of candidates allowed to show in sidebar collect. If the candidate count exceeds this threshold, `embark-collect' is NOT executed."
-  :type 'integer)
+  "Maximum number of candidates allowed to show in sidebar collect.
+If the candidate count exceeds this threshold, `embark-collect' is NOT executed."
+  :type 'integer
+  :group 'embark-sidebar)
+
+(defcustom embark-sidebar-visible-buffers 3
+  "Maximum number of buffers to keep and display in the sidebar.
+This controls both the total number of buffers kept in memory and
+the number displayed simultaneously. Older buffers are automatically
+removed when this limit is exceeded."
+  :type 'integer
+  :group 'embark-sidebar)
+
+(defcustom embark-sidebar-min-window-height 5
+  "Minimum height for each sidebar window."
+  :type 'integer
+  :group 'embark-sidebar)
+
+;;; Variables
 
 (defvar embark-sidebar--active nil
   "Non-nil if Embark Sidebar minor mode is enabled.")
 
-(defvar embark-sidebar--window nil
-  "Sidebar window object.")
+(defvar embark-sidebar--windows nil
+  "List of sidebar window objects.")
+
+(defvar embark-sidebar--buffers nil
+  "List of collect buffers being displayed in the sidebar.")
 
 (defvar embark-sidebar--last-command nil
   "Last command executed that triggered the sidebar collect.")
 
-(defun embark-sidebar--clone-collect-buffer (source dest)
-  "Clone SOURCE collect buffer fully into DEST buffer (including properties and local variables)."
-  (let ((src-buf (get-buffer source))
-        (dest-buf (get-buffer-create dest)))
-    (with-current-buffer dest-buf
+;;; Helper Functions
+
+(defun embark-sidebar--get-current-command ()
+  "Get the current command for sidebar operations."
+  (or (bound-and-true-p embark--command) last-command))
+
+(defun embark-sidebar--get-candidates ()
+  "Get the current candidates from Vertico."
+  (and (boundp 'vertico--candidates) vertico--candidates))
+
+(defun embark-sidebar--command-allowed-p (command)
+  "Check if COMMAND is allowed for sidebar collection."
+  (member command embark-sidebar-allowed-commands))
+
+(defun embark-sidebar--generate-buffer-name (command)
+  "Generate a unique buffer name for COMMAND."
+  (format "*Embark Collect (%s)*" command))
+
+(defun embark-sidebar--candidates-exceed-threshold-p (candidates)
+  "Check if CANDIDATES count exceeds the threshold."
+  (and candidates
+       (numberp embark-sidebar-candidate-threshold)
+       (> (length candidates) embark-sidebar-candidate-threshold)))
+
+(defun embark-sidebar--create-fallback-buffer (message command)
+  "Create a fallback buffer with MESSAGE when collect is not available."
+  (let ((buffer
+         (get-buffer-create
+          (embark-sidebar--generate-buffer-name command))))
+    (with-current-buffer buffer
       (let ((inhibit-read-only t))
         (erase-buffer)
-        ;; Completely copy buffer contents and text properties
-        (insert-buffer-substring src-buf)
+        (insert message))
+      ;; Set a simple mode for the fallback buffer
+      (when (fboundp 'special-mode)
+        (special-mode)))
+    buffer))
 
-        ;; Set embark-collect-mode
-        (embark-collect-mode)
+(defun embark-sidebar--create-threshold-exceeded-message
+    (candidates command)
+  "Create message for when candidate threshold is exceeded."
+  (format
+   "Too many candidates (%d), not collecting. Threshold is %d.\nCommand: %s"
+   (length candidates) embark-sidebar-candidate-threshold command))
 
-        ;; Inherit important buffer-local variables
-        (dolist (sym
-                 '(embark--type
-                   embark--command
-                   embark--target-buffer
-                   embark--target-window
-                   embark--rerun-function
-                   embark--candidates
-                   embark--annotate
-                   embark--affixate
-                   default-directory))
-          (when (local-variable-p sym src-buf)
-            (set
-             (make-local-variable sym)
-             (buffer-local-value sym src-buf))))
+(defun embark-sidebar--create-no-candidates-message (command)
+  "Create message for when no candidates are found."
+  (format "No candidates found.\nCommand: %s" command))
 
-        ;; Also inherit embark--selection
-        (when (local-variable-p 'embark--selection src-buf)
-          (set
-           (make-local-variable 'embark--selection)
-           (buffer-local-value 'embark--selection src-buf)))
+(defun embark-sidebar--add-command-info-to-buffer (buffer command)
+  "Add command information to the top of BUFFER."
+  (with-current-buffer buffer
+    (when (eq major-mode 'embark-collect-mode)
+      (let ((inhibit-read-only t))
+        (save-excursion
+          (goto-char (point-min))
+          (insert (format "Command: %s\n" command)))))))
 
-        ;; Also inherit keymap
-        (when (local-variable-p 'keymap src-buf)
-          (set
-           (make-local-variable 'keymap)
-           (buffer-local-value 'keymap src-buf)))
+(defun embark-sidebar--close-all-windows ()
+  "Close all sidebar windows."
+  (dolist (win embark-sidebar--windows)
+    (when (window-live-p win)
+      (delete-window win)))
+  (setq embark-sidebar--windows nil))
 
-        ;; Also copy overlays (may contain important metadata)
-        (with-current-buffer src-buf
-          (dolist (overlay (overlays-in (point-min) (point-max)))
-            (let ((start (overlay-start overlay))
-                  (end (overlay-end overlay))
-                  (props (overlay-properties overlay)))
-              (with-current-buffer dest-buf
-                (let ((new-overlay (make-overlay start end)))
-                  (while props
-                    (overlay-put new-overlay (car props) (cadr props))
-                    (setq props (cddr props))))))))))))
+(defun embark-sidebar--cleanup-dead-buffers ()
+  "Remove dead buffers from the buffer list."
+  (setq embark-sidebar--buffers
+        (seq-filter #'buffer-live-p embark-sidebar--buffers)))
 
-(defun embark-sidebar--display-buffer (buffer)
-  "Display BUFFER in a sidebar window. The side is controlled by `embark-sidebar-side'."
-  (let ((win
-         (display-buffer-in-side-window
-          buffer
-          `((side . ,embark-sidebar-side)
-            (slot . 0) (window-width . ,embark-sidebar-width)
-            (window-parameters
-             .
-             ((no-other-window . t)
-              (no-delete-other-windows . t)
-              (mode-line-format . " *Embark Sidebar*")))))))
-    (setq embark-sidebar--window win)))
+(defun embark-sidebar--limit-buffers ()
+  "Limit the number of buffers to `embark-sidebar-visible-buffers'."
+  (embark-sidebar--cleanup-dead-buffers)
+  (when (> (length embark-sidebar--buffers)
+           embark-sidebar-visible-buffers)
+    (let ((buffers-to-remove
+           (nthcdr
+            embark-sidebar-visible-buffers embark-sidebar--buffers)))
+      (dolist (buf buffers-to-remove)
+        (when (buffer-live-p buf)
+          (kill-buffer buf)))
+      (setq embark-sidebar--buffers
+            (seq-take embark-sidebar--buffers
+                      embark-sidebar-visible-buffers)))))
+
+(defun embark-sidebar--display-multiple-buffers ()
+  "Display all collect buffers in vertically stacked sidebar windows."
+  (embark-sidebar--close-all-windows)
+  (embark-sidebar--cleanup-dead-buffers)
+
+  (when embark-sidebar--buffers
+    ;; Create individual side windows for each buffer
+    (let ((slot 0))
+      (dolist (buffer embark-sidebar--buffers)
+        (when (buffer-live-p buffer)
+          (let ((win
+                 (display-buffer-in-side-window
+                  buffer
+                  `((side . ,embark-sidebar-side)
+                    (slot . ,slot)
+                    (window-width . ,embark-sidebar-width)
+                    (window-height
+                     .
+                     ,(max embark-sidebar-min-window-height
+                           (/ (frame-height)
+                              (length embark-sidebar--buffers))))
+                    (window-parameters
+                     .
+                     ((no-other-window . t)
+                      (no-delete-other-windows . t)
+                      (mode-line-format
+                       . ,(format " %s" (buffer-name buffer)))))))))
+            (push win embark-sidebar--windows)
+            (setq slot (1+ slot))))))))
+
+(defun embark-sidebar--add-buffer-to-list (buffer)
+  "Add BUFFER to the front of the buffer list, removing duplicates."
+  (setq embark-sidebar--buffers
+        (cons
+         buffer
+         (seq-remove
+          (lambda (b) (eq b buffer)) embark-sidebar--buffers)))
+  (embark-sidebar--limit-buffers))
+
+;;; Main Functions
+
+(defun embark-sidebar--handle-threshold-exceeded (candidates command)
+  "Handle case where candidate count exceeds threshold."
+  (let ((message
+         (embark-sidebar--create-threshold-exceeded-message
+          candidates command)))
+    (embark-sidebar--create-fallback-buffer message command)))
+
+(defun embark-sidebar--handle-normal-collect (command)
+  "Handle normal embark collect operation, returning the collect buffer directly."
+  (condition-case err
+      (progn
+        (let* ((buffer-name
+                (embark-sidebar--generate-buffer-name command))
+               (existing-buffer (get-buffer buffer-name)))
+          ;; Kill existing buffer with same name to avoid conflicts
+          (when existing-buffer
+            (kill-buffer existing-buffer))
+
+          ;; Create collect buffer with command-specific name
+          (let ((collect-buffer (embark--collect buffer-name)))
+            (when collect-buffer
+              ;; Add command info to the collect buffer directly
+              (embark-sidebar--add-command-info-to-buffer
+               collect-buffer command)
+              collect-buffer))))
+    (user-error
+     (let ((message
+            (embark-sidebar--create-no-candidates-message command)))
+       (embark-sidebar--create-fallback-buffer message command)))))
 
 ;;;###autoload
 (defun embark-sidebar-collect-to-sidebar ()
-  "Display Embark Collect results in the sidebar buffer for allowed commands only.
-Before collecting, show a message indicating the command used. Suppressed if candidate count too large!"
+  "Display Embark Collect results in the sidebar using multiple buffers."
   (interactive)
-  (let* ((source-name "*Embark Source*")
-         (sidebar-name embark-sidebar-name)
-         buffer
-         (candidates
-          (and (boundp 'vertico--candidates) vertico--candidates))
-         (command
-          (or (bound-and-true-p embark--command) last-command)))
-    ;; Only run for allowed commands
+  (let* ((command (embark-sidebar--get-current-command))
+         (candidates (embark-sidebar--get-candidates)))
+
     (setq embark-sidebar--last-command command)
-    (when (member command embark-sidebar-allowed-commands)
-      (progn
-        ;; Check if candidate count exceeds threshold
-        (if (and candidates
-                 (numberp embark-sidebar-candidate-threshold)
-                 (> (length candidates)
-                    embark-sidebar-candidate-threshold))
-            (progn
-              (with-current-buffer (get-buffer-create sidebar-name)
-                (let ((inhibit-read-only t))
-                  (erase-buffer)
-                  (insert
-                   (format
-                    "Too many candidates (%d), not collecting. Threshold is %d.\nCommand: %s"
-                    (length candidates)
-                    embark-sidebar-candidate-threshold
-                    command))))
-              (setq buffer (get-buffer sidebar-name)))
-          ;; Normal embark-collect with cloning
-          (progn
-            ;; Delete source buffer if exists
-            (when (get-buffer source-name)
-              (kill-buffer source-name))
-            (condition-case err
-                (let ((src-buf (embark--collect source-name)))
-                  (embark-sidebar--clone-collect-buffer
-                   source-name sidebar-name)
-                  ;; Keep source buffer (delete after complete cloning)
-                  (when (get-buffer source-name)
-                    (kill-buffer source-name))
-                  (setq buffer (get-buffer sidebar-name))
-                  ;; Insert command info at top of sidebar buffer
-                  (with-current-buffer buffer
-                    (let ((inhibit-read-only t))
-                      (goto-char (point-min))
-                      (insert (format "Command: %s\n" command)))))
-              (user-error
-               (with-current-buffer (get-buffer-create sidebar-name)
-                 (let ((inhibit-read-only t))
-                   (erase-buffer)
-                   (insert
-                    (format "No candidates found.\nCommand: %s"
-                            command))))
-               (setq buffer (get-buffer sidebar-name))))))
-        (embark-sidebar--display-buffer buffer)))))
+
+    (when (embark-sidebar--command-allowed-p command)
+      (let ((buffer
+             (if (embark-sidebar--candidates-exceed-threshold-p
+                  candidates)
+                 (embark-sidebar--handle-threshold-exceeded
+                  candidates command)
+               (embark-sidebar--handle-normal-collect command))))
+        (when buffer
+          ;; Add buffer to the list and display all buffers
+          (embark-sidebar--add-buffer-to-list buffer)
+          (embark-sidebar--display-multiple-buffers)
+          (message "Sidebar updated with buffer: %s"
+                   (buffer-name buffer)))))))
 
 ;;;###autoload
 (defun embark-sidebar-close ()
-  "Close the Embark Sidebar window and kill the buffer if it exists."
+  "Close the Embark Sidebar windows."
   (interactive)
-  (let ((buf (get-buffer embark-sidebar-name)))
-    (when-let ((win (and buf (get-buffer-window buf 'visible))))
-      (delete-window win))))
+  (embark-sidebar--close-all-windows))
 
 ;;;###autoload
 (defun embark-sidebar-show ()
-  "Ensure the sidebar buffer is displayed. If it does not exist, create an empty one."
+  "Show the sidebar buffers, or create an empty fallback."
   (interactive)
-  (let ((buffer (get-buffer-create embark-sidebar-name)))
-    (with-current-buffer buffer
-      (unless (eq major-mode 'embark-collect-mode)
-        (let ((inhibit-read-only t))
-          (erase-buffer))
-        (embark-collect-mode)))
-    (embark-sidebar--display-buffer buffer)))
+  (if embark-sidebar--buffers
+      (embark-sidebar--display-multiple-buffers)
+    (let ((buffer
+           (embark-sidebar--create-fallback-buffer
+            "No collect results available." "none")))
+      (embark-sidebar--add-buffer-to-list buffer)
+      (embark-sidebar--display-multiple-buffers))))
 
 ;;;###autoload
 (defun embark-sidebar-toggle ()
   "Toggle visibility of the Embark sidebar."
   (interactive)
-  (let ((buf (get-buffer embark-sidebar-name)))
-    (if-let ((win (and buf (get-buffer-window buf 'visible))))
-        (delete-window win)
-      (when buf
-        (embark-sidebar--display-buffer buf)))))
+  (if (and embark-sidebar--windows
+           (seq-some #'window-live-p embark-sidebar--windows))
+      (embark-sidebar-close)
+    (embark-sidebar-show)))
+
+;;;###autoload
+(defun embark-sidebar-refresh ()
+  "Refresh the sidebar with the latest collect results."
+  (interactive)
+  (when embark-sidebar--last-command
+    (embark-sidebar-collect-to-sidebar)))
+
+;;;###autoload
+(defun embark-sidebar-clear-all ()
+  "Clear all collect buffers from the sidebar."
+  (interactive)
+  (embark-sidebar-close)
+  (dolist (buf embark-sidebar--buffers)
+    (when (buffer-live-p buf)
+      (kill-buffer buf)))
+  (setq embark-sidebar--buffers nil)
+  (message "All sidebar buffers cleared"))
+
+;;;###autoload
+(defun embark-sidebar-remove-current ()
+  "Remove the currently focused buffer from the sidebar."
+  (interactive)
+  (let ((current-buffer (current-buffer)))
+    (when (member current-buffer embark-sidebar--buffers)
+      (setq embark-sidebar--buffers
+            (seq-remove
+             (lambda (b) (eq b current-buffer))
+             embark-sidebar--buffers))
+      (kill-buffer current-buffer)
+      (if embark-sidebar--buffers
+          (embark-sidebar--display-multiple-buffers)
+        (embark-sidebar-close))
+      (message "Buffer removed from sidebar"))))
+
+;;;###autoload
+(defun embark-sidebar-cycle-buffers ()
+  "Cycle through sidebar buffers by rotating the buffer order."
+  (interactive)
+  (when (> (length embark-sidebar--buffers) 1)
+    ;; Move the first buffer to the end and refresh display
+    (let ((first-buffer (car embark-sidebar--buffers))
+          (remaining-buffers (cdr embark-sidebar--buffers)))
+      (setq embark-sidebar--buffers
+            (append remaining-buffers (list first-buffer)))
+      (embark-sidebar--display-multiple-buffers)
+      (message "Cycled sidebar buffers (%d total)"
+               (length embark-sidebar--buffers)))))
+
+;;;###autoload
+(defun embark-sidebar-list-all-buffers ()
+  "Show a list of all sidebar buffers and allow selection."
+  (interactive)
+  (if embark-sidebar--buffers
+      (let* ((buffer-names
+              (mapcar
+               (lambda (buf)
+                 (cons (buffer-name buf) buf))
+               embark-sidebar--buffers))
+             (selected-name
+              (completing-read "Select sidebar buffer: " buffer-names
+                               nil t))
+             (selected-buffer
+              (cdr (assoc selected-name buffer-names))))
+        (when selected-buffer
+          ;; Move selected buffer to front and refresh display
+          (setq embark-sidebar--buffers
+                (cons
+                 selected-buffer
+                 (seq-remove
+                  (lambda (b) (eq b selected-buffer))
+                  embark-sidebar--buffers)))
+          (embark-sidebar--display-multiple-buffers)
+          (message "Selected buffer moved to front")))
+    (message "No sidebar buffers available")))
+
+;;; Auto-switching
 
 (defun embark-sidebar--auto-switch-window ()
   "Switch to the Embark sidebar window if it exists, otherwise create it."
   (run-at-time
-   "0.01 sec" nil
+   0.01 nil
    (lambda ()
-     (if (member
-          embark-sidebar--last-command
-          embark-sidebar-allowed-commands)
-         (progn
-           (embark-sidebar-show))
-       (progn
-         (embark-sidebar-close))))))
+     (if (embark-sidebar--command-allowed-p
+          embark-sidebar--last-command)
+         (embark-sidebar-show)
+       (embark-sidebar-close)))))
+
+;;; Advice Functions
 
 (defun embark-sidebar--vertico-exit-advice (&rest _)
   "Advice for `vertico-exit' to collect into sidebar if sidebar mode is active."
@@ -249,7 +395,6 @@ Before collecting, show a message indicating the command used. Suppressed if can
 
 (defun embark-sidebar--advice-enable ()
   "Enable advice and hooks for embark-sidebar-mode."
-  ;; Vertico advice
   (advice-add
    'vertico-exit
    :before #'embark-sidebar--vertico-exit-advice))
@@ -257,10 +402,9 @@ Before collecting, show a message indicating the command used. Suppressed if can
 (defun embark-sidebar--advice-disable ()
   "Disable advice and hooks for embark-sidebar-mode."
   (advice-remove 'vertico-exit #'embark-sidebar--vertico-exit-advice)
-  (when (get-buffer embark-sidebar-name)
-    (when-let ((win
-                (get-buffer-window (get-buffer embark-sidebar-name))))
-      (delete-window win))))
+  (embark-sidebar-close))
+
+;;; Minor Mode
 
 ;;;###autoload
 (define-minor-mode embark-sidebar-mode

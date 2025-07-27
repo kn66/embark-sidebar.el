@@ -1,6 +1,6 @@
 * Overview
 
-=embark-sidebar= provides a dynamic sidebar for Emacs that displays recent commands and completions using Embark Collect functionality. Unlike traditional static sidebars, this creates a value-driven sidebar that prioritizes recently used items, enhancing productivity through intelligent command history integration.
+=embark-sidebar= provides a dynamic multi-buffer sidebar for Emacs that displays Embark Collect results in a persistent sidebar interface. This package creates multiple vertically stacked sidebar windows that show recent command results, enhancing productivity through intelligent command history integration and visual persistence of collect buffers.
 
 * Motivation
 
@@ -8,18 +8,22 @@ This package was created to address several limitations of existing sidebar solu
 
 - **Static Nature of Existing Tools**: While =treemacs=, =neotree=, and =imenu-list= offer excellent UI and usability, they serve limited, specific purposes and often remain unused as mere decorations
 - **Value of Recent History**: Tools like =savehist= and =prescient= demonstrate that history-based sorting significantly improves productivity, with recent commands having higher practical value
-- **Dynamic Sidebar Concept**: By combining =embark-collect= with recent command history, we can create a sidebar that dynamically shows the most valuable and relevant information
+- **Dynamic Multi-Buffer Concept**: By combining =embark-collect= with multiple persistent buffers, we can create a sidebar that dynamically shows the most valuable and relevant information across multiple command contexts
+- **Visual Command Context**: Keep multiple command results visible simultaneously for easy reference and comparison
 
-The result is a sidebar that adapts to your workflow, always showing the most pertinent commands and completions.
+The result is a sidebar that adapts to your workflow, always showing the most pertinent commands and completions in a visually organized manner.
 
 * Features
 
-- **Dynamic Content**: Automatically populates with recent commands and completions
-- **Embark Integration**: Leverages Embark's powerful action system
-- **Vertico Integration**: Collect sidebar automatically when exiting Vertico and for allowed commands
-- **Performance Optimized**: Only collects if candidate count is within set threshold
-- **Customizable Display**: Adjustable sidebar width, side (left/right), and buffer name
-- **Global Minor Mode**: Enable or disable sidebar and integration via =embark-sidebar-mode=
+- **Multi-Buffer Display**: Shows multiple collect buffers simultaneously in vertically stacked sidebar windows
+- **Dynamic Content Management**: Automatically manages buffer lifecycle with configurable limits
+- **Embark Integration**: Leverages Embark's powerful collect system with command-specific buffer naming
+- **Vertico Integration**: Automatically collects sidebar results when exiting Vertico for allowed commands
+- **Performance Optimized**: Only collects if candidate count is within set threshold, with fallback messages
+- **Customizable Display**: Adjustable sidebar width, side (left/right), number of visible buffers, and minimum window height
+- **Buffer Management**: Rich set of commands for cycling, removing, selecting, and clearing buffers
+- **Command Filtering**: Configurable list of allowed commands for sidebar collection
+- **Global Minor Mode**: Enable or disable sidebar functionality via =embark-sidebar-mode=
 
 * Screenshots
 
@@ -48,10 +52,25 @@ consult-line
   (use-package embark)
 
   (use-package embark-sidebar
-    :vc (:url "https://github.com/kn66/embark-sidebar.el" :rev :newest)
+    :vc (:url "https://github.com/kn66/embark-sidebar" :rev :newest)
     :config
     (embark-sidebar-mode +1))
 #+END_SRC
+
+* Interactive Commands
+
+** Core Commands
+- =embark-sidebar-collect-to-sidebar= - Collect current results to sidebar
+- =embark-sidebar-toggle= - Toggle sidebar visibility
+- =embark-sidebar-show= - Show sidebar (create empty if no buffers)
+- =embark-sidebar-close= - Close all sidebar windows
+- =embark-sidebar-refresh= - Refresh sidebar with latest results
+
+** Buffer Management
+- =embark-sidebar-clear-all= - Clear all collect buffers from sidebar
+- =embark-sidebar-remove-current= - Remove currently focused buffer
+- =embark-sidebar-cycle-buffers= - Cycle through buffers by rotating order
+- =embark-sidebar-list-all-buffers= - Interactive buffer selection with completion
 
 * Customization Options
 
@@ -62,26 +81,72 @@ consult-line
   ;; Display on left side (default: 'right)
   (setq embark-sidebar-side 'left)
 
-  ;; Change sidebar buffer name (default: "*Embark Sidebar*")
-  (setq embark-sidebar-name "*My Sidebar*")
-
   ;; Set candidate threshold to prevent sidebar collect (default: 600)
   (setq embark-sidebar-candidate-threshold 300)
 
-  ;; Change allowed commands for sidebar collect (default: see source, can be customized)
-  (setq embark-sidebar-allowed-commands '(find-file consult-line consult-imenu))
+  ;; Maximum number of buffers to keep and display (default: 3)
+  (setq embark-sidebar-visible-buffers 5)
+
+  ;; Minimum height for each sidebar window (default: 5)
+  (setq embark-sidebar-min-window-height 8)
+
+  ;; Customize allowed commands for sidebar collect
+  (setq embark-sidebar-allowed-commands 
+        '(find-file 
+          consult-line 
+          consult-imenu
+          consult-flymake
+          project-find-file))
 #+END_SRC
+
+** Default Allowed Commands
+
+The following commands are enabled for sidebar collection by default:
+
+- =consult-line=, =consult-imenu=, =consult-flymake=, =consult-flycheck=
+- =consult-grep=, =consult-ripgrep=, =consult-xref=
+- =consult-find=, =consult-fd=, =consult-recent-file=
+- =consult-outline=, =consult-global-mark=, =consult-project-buffer=
+- =consult-bookmark=
+- =xref-find-definitions=, =xref-find-references=
+- =find-file=, =project-find-file=
+- =denote-open-or-create=
+
+* Behavior Details
+
+** Buffer Management
+- New collect results are added to the front of the buffer list
+- Buffers are automatically limited to =embark-sidebar-visible-buffers= count
+- Older buffers are automatically removed when the limit is exceeded
+- Dead buffers are automatically cleaned up
+
+** Window Layout
+- Each buffer gets its own individual side window
+- Windows are vertically stacked using display slots
+- Window height is automatically calculated based on the number of buffers
+- Minimum window height is respected via =embark-sidebar-min-window-height=
+
+** Threshold Handling
+- If candidates exceed =embark-sidebar-candidate-threshold=, a fallback buffer is created instead of collecting
+- Fallback buffers show informative messages about why collection was skipped
+- No candidates scenarios also create informative fallback buffers
 
 * Troubleshooting
 
 ** Sidebar Not Appearing
-
 - Ensure =embark-sidebar-mode= is enabled
-- Check that required dependencies are installed
+- Check that required dependencies (embark, vertico) are installed and configured
+- Verify the current command is in =embark-sidebar-allowed-commands=
 
 ** Performance Issues
+- Reduce =embark-sidebar-candidate-threshold= value for commands with many results
+- Decrease =embark-sidebar-visible-buffers= to reduce memory usage
+- Check if specific commands are causing issues and remove them from allowed commands
 
-- Reduce =embark-sidebar-candidate-threshold= value
+** Window Management Issues
+- Adjust =embark-sidebar-min-window-height= if windows are too small
+- Change =embark-sidebar-width= if sidebar is too narrow/wide
+- Use =embark-sidebar-close= to reset window state if layout becomes corrupted
 
 * License
 
