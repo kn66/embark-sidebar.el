@@ -65,7 +65,7 @@ If the candidate count exceeds this threshold, `embark-collect' is NOT executed.
   :type 'integer
   :group 'embark-sidebar)
 
-(defcustom embark-sidebar-visible-buffers 3
+(defcustom embark-sidebar-visible-buffers 1
   "Maximum number of buffers to keep and display in the sidebar.
 This controls both the total number of buffers kept in memory and
 the number displayed simultaneously. Older buffers are automatically
