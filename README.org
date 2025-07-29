@@ -1,153 +1,114 @@
 * Overview
 
-=embark-sidebar= provides a dynamic multi-buffer sidebar for Emacs that displays Embark Collect results in a persistent sidebar interface. This package creates multiple vertically stacked sidebar windows that show recent command results, enhancing productivity through intelligent command history integration and visual persistence of collect buffers.
+`embark-sidebar` is a sidebar for Emacs that displays Embark Collect results in multiple buffers with vertical stacking.
+It automatically accumulates recent command results, enabling cross-referential browsing and comparison using history.
 
-* Motivation
+* Key Features
 
-This package was created to address several limitations of existing sidebar solutions:
+- *Multi-buffer*: Simultaneously displays up to N collect buffers per command (default is 1)
+- *Automatic history management*: Old buffers are automatically removed. Display count can be limited via configuration
+- *Embark/Vertico integration*: Automatically collects and retrieves lists with `embark-collect` when `vertico-exit` is executed for registered commands
+- *Performance with thresholds*: When there are too many candidates, only displays messages without collecting the list
+- *Display customization*: Customizable width/height/maximum buffer count/display side
 
-- **Static Nature of Existing Tools**: While =treemacs=, =neotree=, and =imenu-list= offer excellent UI and usability, they serve limited, specific purposes and often remain unused as mere decorations
-- **Value of Recent History**: Tools like =savehist= and =prescient= demonstrate that history-based sorting significantly improves productivity, with recent commands having higher practical value
-- **Dynamic Multi-Buffer Concept**: By combining =embark-collect= with multiple persistent buffers, we can create a sidebar that dynamically shows the most valuable and relevant information across multiple command contexts
-- **Visual Command Context**: Keep multiple command results visible simultaneously for easy reference and comparison
+* Installation
 
-The result is a sidebar that adapts to your workflow, always showing the most pertinent commands and completions in a visually organized manner.
-
-* Features
-
-- **Multi-Buffer Display**: Shows multiple collect buffers simultaneously in vertically stacked sidebar windows
-- **Dynamic Content Management**: Automatically manages buffer lifecycle with configurable limits
-- **Embark Integration**: Leverages Embark's powerful collect system with command-specific buffer naming
-- **Vertico Integration**: Automatically collects sidebar results when exiting Vertico for allowed commands
-- **Performance Optimized**: Only collects if candidate count is within set threshold, with fallback messages
-- **Customizable Display**: Adjustable sidebar width, side (left/right), number of visible buffers, and minimum window height
-- **Buffer Management**: Rich set of commands for cycling, removing, selecting, and clearing buffers
-- **Command Filtering**: Configurable list of allowed commands for sidebar collection
-- **Global Minor Mode**: Enable or disable sidebar functionality via =embark-sidebar-mode=
-
-* Screenshots
-
-find-file
-[[./screenshots/find-file.png]]
-
-xref
-[[./screenshots/xref.png]]
-
-consult-flymake
-[[./screenshots/consult-flymake.png]]
-
-consult-imenu
-[[./screenshots/consult-imenu.png]]
-
-consult-line
-[[./screenshots/consult-line.png]]
-
-* Setup
-
-1. Download =embark-sidebar.el= and place it in your Emacs load path
-2. Add the following to your Emacs configuration:
-
-#+BEGIN_SRC emacs-lisp
+#+begin_src emacs-lisp
   (use-package vertico)
   (use-package embark)
 
   (use-package embark-sidebar
     :vc (:url "https://github.com/kn66/embark-sidebar" :rev :newest)
     :config
-    (embark-sidebar-mode +1))
-#+END_SRC
+    (embark-sidebar-mode 1))
+#+end_src
 
-* Interactive Commands
+* Screenshots
 
-** Core Commands
-- =embark-sidebar-collect-to-sidebar= - Collect current results to sidebar
-- =embark-sidebar-toggle= - Toggle sidebar visibility
-- =embark-sidebar-show= - Show sidebar (create empty if no buffers)
-- =embark-sidebar-close= - Close all sidebar windows
-- =embark-sidebar-refresh= - Refresh sidebar with latest results
+- find-file
+  [[./screenshots/find-file.png]]
+
+- xref
+  [[./screenshots/xref.png]]
+
+- consult-flymake
+  [[./screenshots/consult-flymake.png]]
+
+- consult-imenu
+  [[./screenshots/consult-imenu.png]]
+
+- consult-line
+  [[./screenshots/consult-line.png]]
+
+* Main Usage and Commands
+
+** Sidebar Main Functions
+- `embark-sidebar-collect-to-sidebar`: Add results to sidebar
+- `embark-sidebar-toggle`: Toggle display/hide
+- `embark-sidebar-show`: Force display
+- `embark-sidebar-close`: Close all windows
+- `embark-sidebar-refresh`: Rebuild with most recent results
 
 ** Buffer Management
-- =embark-sidebar-clear-all= - Clear all collect buffers from sidebar
-- =embark-sidebar-remove-current= - Remove currently focused buffer
-- =embark-sidebar-cycle-buffers= - Cycle through buffers by rotating order
-- =embark-sidebar-list-all-buffers= - Interactive buffer selection with completion
+- `embark-sidebar-clear-all`: Delete all buffers
+- `embark-sidebar-remove-current`: Delete current buffer
+- `embark-sidebar-cycle-buffers`: Reorder buffers
+- `embark-sidebar-list-all-buffers`: Select from completion list
 
-* Customization Options
+* Avy-style Quick Selection (`embark-sidebar-quick.el`)
 
-#+BEGIN_SRC emacs-lisp
-  ;; Change the sidebar width (default: 60)
-  (setq embark-sidebar-width 80)
+- Assigns keys to sidebar candidates
+- Press key to "jump" or "execute Embark act"
 
-  ;; Display on left side (default: 'right)
-  (setq embark-sidebar-side 'left)
+** Setup & Configuration
 
-  ;; Set candidate threshold to prevent sidebar collect (default: 600)
-  (setq embark-sidebar-candidate-threshold 300)
+#+begin_src emacs-lisp
+(define-key embark-sidebar-mode-map (kbd "<f5>") #'embark-sidebar-quick-select)
+(define-key embark-sidebar-mode-map (kbd "<f6>") #'embark-sidebar-quick-goto)
+#+end_src
 
-  ;; Maximum number of buffers to keep and display (default: 3)
-  (setq embark-sidebar-visible-buffers 5)
+** Commands
 
-  ;; Minimum height for each sidebar window (default: 5)
-  (setq embark-sidebar-min-window-height 8)
+- `embark-sidebar-quick-select`: Assign numbers/letters to each candidate for one-key execution (equivalent to RET)
+- `embark-sidebar-quick-goto`: One-key jump (move only, no execution)
 
-  ;; Customize allowed commands for sidebar collect
-  (setq embark-sidebar-allowed-commands 
-        '(find-file 
-          consult-line 
-          consult-imenu
-          consult-flymake
-          project-find-file))
-#+END_SRC
+** screenshots
+
+[[./screenshots/embark-sidebar-quick.png]]
+  
+* Customization Examples
+
+#+begin_src emacs-lisp
+(setq embark-sidebar-width 80)            ; Sidebar width
+(setq embark-sidebar-side 'left)          ; Left display (right: 'right)
+(setq embark-sidebar-candidate-threshold 300) ; Adjust candidate count limit
+(setq embark-sidebar-visible-buffers 3)   ; Remember maximum 3 buffers
+(setq embark-sidebar-min-window-height 8) ; Minimum height for each window
+(setq embark-sidebar-allowed-commands     ; Only allowed commands
+      '(find-file consult-line consult-imenu consult-flymake project-find-file))
+#+end_src
 
 ** Default Allowed Commands
 
-The following commands are enabled for sidebar collection by default:
+- consult-line, consult-imenu, consult-flymake, consult-flycheck
+- consult-grep, consult-ripgrep, consult-xref
+- consult-find, consult-fd, consult-recent-file
+- consult-outline, consult-global-mark, consult-project-buffer
+- consult-bookmark
+- xref-find-definitions, xref-find-references
+- find-file, project-find-file
+- denote-open-or-create
 
-- =consult-line=, =consult-imenu=, =consult-flymake=, =consult-flycheck=
-- =consult-grep=, =consult-ripgrep=, =consult-xref=
-- =consult-find=, =consult-fd=, =consult-recent-file=
-- =consult-outline=, =consult-global-mark=, =consult-project-buffer=
-- =consult-bookmark=
-- =xref-find-definitions=, =xref-find-references=
-- =find-file=, =project-find-file=
-- =denote-open-or-create=
+* Detailed Specifications & Notes
 
-* Behavior Details
+** Automatic Buffer Management
 
-** Buffer Management
-- New collect results are added to the front of the buffer list
-- Buffers are automatically limited to =embark-sidebar-visible-buffers= count
-- Older buffers are automatically removed when the limit is exceeded
-- Dead buffers are automatically cleaned up
+- Most recently added buffers are placed at the top
+- When the maximum retention count is exceeded, old buffers are automatically deleted
 
-** Window Layout
-- Each buffer gets its own individual side window
-- Windows are vertically stacked using display slots
-- Window height is automatically calculated based on the number of buffers
-- Minimum window height is respected via =embark-sidebar-min-window-height=
-
-** Threshold Handling
-- If candidates exceed =embark-sidebar-candidate-threshold=, a fallback buffer is created instead of collecting
-- Fallback buffers show informative messages about why collection was skipped
-- No candidates scenarios also create informative fallback buffers
-
-* Troubleshooting
-
-** Sidebar Not Appearing
-- Ensure =embark-sidebar-mode= is enabled
-- Check that required dependencies (embark, vertico) are installed and configured
-- Verify the current command is in =embark-sidebar-allowed-commands=
-
-** Performance Issues
-- Reduce =embark-sidebar-candidate-threshold= value for commands with many results
-- Decrease =embark-sidebar-visible-buffers= to reduce memory usage
-- Check if specific commands are causing issues and remove them from allowed commands
-
-** Window Management Issues
-- Adjust =embark-sidebar-min-window-height= if windows are too small
-- Change =embark-sidebar-width= if sidebar is too narrow/wide
-- Use =embark-sidebar-close= to reset window state if layout becomes corrupted
+** Threshold Exceeded/Empty Candidates
+- When candidate count exceeds the limit, only messages are displayed without outputting the list
 
 * License
 
-This package is licensed under the MIT license.
+MIT License. See LICENSE file.
