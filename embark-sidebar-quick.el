@@ -8,6 +8,8 @@
 
 ;;; Avy-style selection variables and functions
 
+(require 'embark-sidebar)
+
 (defvar embark-sidebar--selection-keys
   "123456789abcdefghijklmnopqrstuvwxyz"
   "Characters used for avy-style selection.")
@@ -15,7 +17,7 @@
 (defvar embark-sidebar--overlays nil
   "List of overlays for avy-style selection.")
 
-(defvar embark-sidebar--debug t
+(defvar embark-sidebar--debug nil
   "Enable debug messages for embark-sidebar selection.")
 
 (defun embark-sidebar--debug-message (format-string &rest args)
@@ -383,6 +385,9 @@
 Shows numbered/lettered keys on each candidate in the sidebar,
 then executes the selected candidate when a key is pressed."
   (interactive)
+  (setq-local embark-sidebar--inhibit-close t)
+  (embark-sidebar-show)
+
   (embark-sidebar--debug-message
    "=== Starting embark-sidebar-quick-select ===")
 
@@ -432,6 +437,8 @@ then executes the selected candidate when a key is pressed."
               "Selection cancelled by user")
              (message "Selection cancelled"))
             (error
+             (setq-local embark-sidebar--inhibit-close nil)
+
              (embark-sidebar--debug-message
               "Error during selection: %s"
               (error-message-string err))
@@ -443,7 +450,9 @@ then executes the selected candidate when a key is pressed."
         (embark-sidebar--clear-overlays))))
 
   (embark-sidebar--debug-message
-   "=== Finished embark-sidebar-quick-select ==="))
+   "=== Finished embark-sidebar-quick-select ===")
+
+  (setq-local embark-sidebar--inhibit-close nil))
 
 ;;;###autoload
 (defun embark-sidebar-quick-goto ()
@@ -451,6 +460,8 @@ then executes the selected candidate when a key is pressed."
 Shows numbered/lettered keys on each candidate in the sidebar,
 then moves point to the selected candidate without executing it."
   (interactive)
+  (setq-local embark-sidebar--inhibit-close t)
+
   (embark-sidebar--debug-message
    "=== Starting embark-sidebar-quick-goto ===")
 
@@ -497,7 +508,9 @@ then moves point to the selected candidate without executing it."
                       (error-message-string err))))
 
         ;; Always clear overlays
-        (embark-sidebar--clear-overlays)))))
+        (embark-sidebar--clear-overlays))))
+
+  (setq-local embark-sidebar--inhibit-close nil))
 
 ;; Debug control functions
 ;;;###autoload
@@ -539,11 +552,6 @@ then moves point to the selected candidate without executing it."
               (message "No candidate selected (safe method)")))
 
         (embark-sidebar--clear-overlays)))))
-
-;; Keybinding suggestions for embark-collect-mode-map
-;; Add these to your init.el:
-;; (define-key embark-collect-mode-map (kbd "q") #'embark-sidebar-quick-select)
-;; (define-key embark-collect-mode-map (kbd "g") #'embark-sidebar-quick-goto)
 
 (provide 'embark-sidebar-quick)
 

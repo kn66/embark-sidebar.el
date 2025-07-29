@@ -92,6 +92,8 @@ removed when this limit is exceeded."
 (defvar embark-sidebar--last-command nil
   "Last command executed that triggered the sidebar collect.")
 
+(defvar embark-sidebar--inhibit-close nil)
+
 ;;; Helper Functions
 
 (defun embark-sidebar--get-current-command ()
@@ -380,8 +382,9 @@ removed when this limit is exceeded."
   (run-at-time
    0.01 nil
    (lambda ()
-     (if (embark-sidebar--command-allowed-p
-          embark-sidebar--last-command)
+     (if (or (embark-sidebar--command-allowed-p
+              embark-sidebar--last-command)
+             embark-sidebar--inhibit-close)
          (embark-sidebar-show)
        (embark-sidebar-close)))))
 
